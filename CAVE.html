@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>CAVE - Dig caves to uncover gold veins and treasures, don't die!</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;user-select:none;-webkit-user-select:none;}
+    body,html{width:100%;height:100%;overflow:hidden;background:#080606;font-family:'Segoe UI',sans-serif;color:#e0d8cf;}
+    #canvas-container{position:absolute;inset:0;z-index:1;}
+    canvas{display:block;width:100%;height:100%;}
+    #damage-vignette{position:absolute;inset:0;pointer-events:none;z-index:5;box-shadow:inset 0 0 100px rgba(255,0,0,0);transition:box-shadow .1s ease-out;}
+    #damage-vignette.hit{box-shadow:inset 0 0 130px rgba(255,20,20,.9);}
+    #hud{position:absolute;inset:0;z-index:10;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;padding:20px;}
+    .hud-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;text-shadow:0 2px 4px rgba(0,0,0,.8);}
+    .hud-card{background:rgba(18,14,12,.85);border:1px solid rgba(160,120,80,.4);box-shadow:0 4px 18px rgba(0,0,0,.7),inset 0 0 10px rgba(180,130,80,.15);border-radius:6px;padding:8px 14px;backdrop-filter:blur(6px);flex:1;min-width:110px;}
+    .stat-label{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:#a89480;margin-bottom:2px;white-space:nowrap;}
+    .stat-value{font-size:18px;font-weight:700;font-family:'Courier New',monospace;color:#f7d59b;display:flex;align-items:center;gap:6px;white-space:nowrap;}
+    .stat-value.gold{color:#ffd700;text-shadow:0 0 10px rgba(255,215,0,.65);}
+    .stat-value.ore-gold{color:#ffcc00;text-shadow:0 0 12px rgba(255,204,0,.8);}
+    .health-container{width:230px;flex:1.2;}
+    .hp-frame,.bar-frame{height:16px;background:rgba(10,8,6,.85);border:1px solid rgba(220,80,80,.5);border-radius:4px;padding:2px;position:relative;overflow:hidden;box-shadow:inset 0 0 8px rgba(0,0,0,.8);}
+    .bar-frame{border-color:rgba(200,150,90,.5);}
+    #hp-bar{height:100%;width:100%;background:linear-gradient(90deg,#ff3333,#ff7733);border-radius:2px;box-shadow:0 0 10px rgba(255,60,60,.7);transition:width .1s ease-out;}
+    .armor-tag{font-size:10px;font-weight:800;color:#ffd700;letter-spacing:1px;background:rgba(40,30,10,.75);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,215,0,.4);}
+    #crosshair-container{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;display:flex;align-items:center;justify-content:center;width:48px;height:48px;}
+    .crosshair-dot{width:4px;height:4px;background:#ffecb3;border-radius:50%;box-shadow:0 0 6px rgba(255,236,179,.9);transition:transform .05s,background-color .1s;}
+    .crosshair-ring{position:absolute;width:28px;height:28px;border:1.5px solid rgba(240,200,140,.45);border-radius:50%;transition:all .08s;}
+    .crosshair-bar{position:absolute;background:rgba(255,235,190,.6);}
+    .crosshair-bar.top{top:2px;width:1.5px;height:6px;}.crosshair-bar.bottom{bottom:2px;width:1.5px;height:6px;}.crosshair-bar.left{left:2px;width:6px;height:1.5px;}.crosshair-bar.right{right:2px;width:6px;height:1.5px;}
+    .crosshair-mining .crosshair-ring{border-color:#ffaa33;transform:scale(1.3) rotate(45deg);border-style:dashed;}
+    .crosshair-mining .crosshair-dot{background:#ff6600;transform:scale(1.6);box-shadow:0 0 10px #ff7700;}
+    .crosshair-locked .crosshair-ring{border-color:#ff3333;transform:scale(.9);}
+    .crosshair-locked .crosshair-dot{background:#ff3333;}
+    #footing-warning{position:absolute;top:calc(50% + 40px);left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:1.5px;font-weight:700;color:#ff5555;text-transform:uppercase;opacity:0;transition:opacity .15s;text-shadow:0 0 6px rgba(255,0,0,.8);white-space:nowrap;}
+    .hud-bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;}
+    .energy-container{width:250px;}
+    #energy-bar{height:100%;width:100%;background:linear-gradient(90deg,#00bbff,#55eeff);border-radius:2px;box-shadow:0 0 10px rgba(68,221,255,.7);transition:width .05s ease-out;}
+    #energy-bar.overheated{background:linear-gradient(90deg,#ff2222,#ff6633)!important;box-shadow:0 0 12px rgba(255,50,50,.9)!important;}
+    #energy-bar.recharging{background:linear-gradient(90deg,#33cc88,#66ffaa);}
+    .bar-label-row{display:flex;justify-content:space-between;font-size:11px;font-weight:700;letter-spacing:1px;margin-bottom:4px;color:#c8b49c;}
+    .nav-info{text-align:right;font-family:'Courier New',monospace;font-size:12px;color:#9f8c77;}
+    .nav-coord{color:#d8c2a5;font-weight:700;}
+    #banner-container{position:absolute;top:15%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none;z-index:20;}
+    .secret-banner,.danger-banner{color:#fff8e1;padding:8px 45px;font-size:17px;font-weight:800;letter-spacing:3px;text-transform:uppercase;text-shadow:0 0 12px #ffaa00,0 2px 4px #000;animation:bannerPop 3.2s cubic-bezier(.1,.9,.2,1) forwards;background:linear-gradient(90deg,rgba(60,40,10,0),rgba(220,150,20,.95),rgba(60,40,10,0));}
+    .danger-banner{color:#fff0f0;text-shadow:0 0 12px #ff2222,0 2px 4px #000;background:linear-gradient(90deg,rgba(80,10,10,0),rgba(240,40,40,.95),rgba(80,10,10,0));}
+    @keyframes bannerPop{0%{opacity:0;transform:translateY(-20px) scale(.85);}15%{opacity:1;transform:translateY(0) scale(1.05);}25%{transform:scale(1);}80%{opacity:1;transform:translateY(0);}100%{opacity:0;transform:translateY(-15px);}}
+    .pickup-popup,.penalty-popup{position:absolute;font-family:'Courier New',monospace;font-weight:700;font-size:16px;color:#ffd700;text-shadow:0 0 8px rgba(255,215,0,.8),0 2px 4px #000;pointer-events:none;text-align:center;animation:floatUpFade 1.3s ease-out forwards;z-index:30;}
+    .penalty-popup{color:#ff3344;text-shadow:0 0 8px rgba(255,50,50,.9),0 2px 4px #000;}
+    @keyframes floatUpFade{0%{opacity:1;transform:translate(-50%,-50%) scale(1);}50%{transform:translate(-50%,-80px) scale(1.15);}100%{opacity:0;transform:translate(-50%,-120px) scale(.9);}}
+    .screen-overlay{position:absolute;inset:0;background:rgba(8,6,5,.88);backdrop-filter:blur(8px);z-index:100;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:24px;}
+    .modal-box{background:linear-gradient(180deg,#221a14 0%,#15100c 100%);border:2px solid #a87848;box-shadow:0 10px 40px rgba(0,0,0,.9),0 0 30px rgba(180,120,50,.2);border-radius:10px;padding:32px 42px;max-width:620px;width:92%;}
+    .modal-title{font-size:30px;font-weight:800;letter-spacing:4px;color:#f7d59b;text-transform:uppercase;margin-bottom:4px;text-shadow:0 0 15px rgba(247,213,155,.4);}
+    .modal-subtitle{font-size:12px;color:#a89480;letter-spacing:2px;margin-bottom:20px;text-transform:uppercase;}
+    .controls-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;text-align:left;background:rgba(0,0,0,.35);padding:14px 18px;border-radius:6px;border:1px solid rgba(160,120,80,.2);}
+    .control-item{display:flex;align-items:center;gap:10px;font-size:12px;color:#d8c2a5;}
+    .key-badge{background:#3a2c20;border:1px solid #c89658;color:#fff;font-weight:700;font-size:11px;padding:2px 7px;border-radius:4px;box-shadow:0 2px 0 #1c150e;min-width:24px;text-align:center;}
+    .btn-start{background:linear-gradient(180deg,#d49343 0%,#9c6020 100%);color:#fff;border:1px solid #ffd080;font-size:15px;font-weight:800;letter-spacing:2px;text-transform:uppercase;padding:12px 36px;border-radius:6px;cursor:pointer;box-shadow:0 4px 15px rgba(180,100,20,.5),inset 0 1px 0 rgba(255,255,255,.4);transition:all .15s;}
+    .btn-start:hover{background:linear-gradient(180deg,#eaab57 0%,#b87528 100%);transform:translateY(-2px);box-shadow:0 6px 20px rgba(220,120,30,.7);}
+    .score-breakdown-card{background:rgba(0,0,0,.45);border:1px solid rgba(255,200,50,.35);border-radius:6px;padding:12px 18px;margin-bottom:18px;text-align:left;}
+    .breakdown-row{display:flex;justify-content:space-between;font-size:13px;color:#d8c2a5;margin-bottom:4px;}
+    .final-score-val{font-size:26px;font-weight:900;color:#ffd700;text-shadow:0 0 12px rgba(255,215,0,.7);font-family:'Courier New',monospace;}
+    .name-input-group{display:flex;gap:8px;margin-bottom:18px;}
+    .name-input{flex:1;background:rgba(10,8,6,.85);border:1px solid #a87848;border-radius:4px;color:#ffd700;font-size:14px;font-family:'Courier New',monospace;font-weight:700;padding:8px 12px;outline:none;}
+    .name-input:focus{border-color:#ffd080;box-shadow:0 0 8px rgba(255,208,128,.4);}
+    .leaderboard-table{width:100%;border-collapse:collapse;font-size:12px;font-family:'Courier New',monospace;margin-bottom:18px;background:rgba(0,0,0,.25);border-radius:4px;overflow:hidden;}
+    .leaderboard-table th{background:rgba(50,36,24,.7);color:#ffd080;padding:6px 8px;text-align:left;font-weight:700;}
+    .leaderboard-table td{padding:5px 8px;border-bottom:1px solid rgba(160,120,80,.15);color:#e0d8cf;}
+    .leaderboard-table tr:nth-child(even){background:rgba(255,255,255,.02);}
+    .leaderboard-table tr.highlight{background:rgba(255,215,0,.15);font-weight:700;color:#ffd700;}
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="damage-vignette"></div>
+  <div id="hud">
+    <div class="hud-top">
+      <div class="hud-card health-container">
+        <div class="bar-label-row"><span>SURVIVOR VITALS</span><span class="armor-tag" id="armor-badge">ARMOR: +0% DEF</span></div>
+        <div class="hp-frame"><div id="hp-bar"></div></div>
+      </div>
+      <div class="hud-card" style="min-width:95px;"><div class="stat-label">Survival Time</div><div class="stat-value" id="timer-display">00:00</div></div>
+      <div class="hud-card" style="border-color:rgba(255,200,40,.6);background:rgba(26,18,8,.88);"><div class="stat-label" style="color:#ffd266;">Gold Counter</div><div class="stat-value ore-gold" id="gold-display">0 <span style="font-size:11px;color:#f3c252;">GOLD</span></div></div>
+      <div class="hud-card" style="text-align:center;"><div class="stat-label">Relics & Secrets</div><div class="stat-value" id="relics-display" style="justify-content:center;">0 <span style="font-size:11px;color:#a89480;">/ 0 SEC</span></div></div>
+      <div class="hud-card" style="text-align:right;"><div class="stat-label">Excavation Metric</div><div class="stat-value" id="mined-display" style="justify-content:flex-end;">0 <span style="font-size:11px;color:#a89480;">BLKS</span></div></div>
+    </div>
+    <div id="crosshair-container">
+      <div class="crosshair-ring"></div><div class="crosshair-bar top"></div><div class="crosshair-bar bottom"></div><div class="crosshair-bar left"></div><div class="crosshair-bar right"></div><div class="crosshair-dot"></div>
+      <div id="footing-warning">LOCKED: FOOTING SAFETY</div>
+    </div>
+    <div id="banner-container"></div>
+    <div class="hud-bottom">
+      <div class="hud-card energy-container">
+        <div class="bar-label-row"><span>MINING DRILL ENERGY</span><span id="energy-text">100%</span></div>
+        <div class="bar-frame"><div id="energy-bar"></div></div>
+      </div>
+      <div class="hud-card nav-info">
+        <div class="stat-label">Subsurface Location</div>
+        <div>DEPTH: <span class="nav-coord" id="depth-coord">Y: 0.0m</span></div>
+        <div>SECTOR: <span class="nav-coord" id="sector-coord">X: 0 | Z: 0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="start-modal" class="screen-overlay">
+    <div class="modal-box">
+      <h1 class="modal-title">CAVE</h1>
+      <p class="modal-subtitle">Dig caves to uncover gold veins and treasures, don't die!</p>
+      <div class="controls-grid">
+        <div class="control-item"><span class="key-badge">W A S D</span> Walk / Move</div>
+        <div class="control-item"><span class="key-badge">MOUSE</span> Look / Aim</div>
+        <div class="control-item"><span class="key-badge">L-CLICK</span> Dig / Shoot</div>
+        <div class="control-item"><span class="key-badge">SPACE</span> Jump / Climb</div>
+        <div class="control-item"><span class="key-badge">SHIFT</span> Sprint Thruster</div>
+        <div class="control-item"><span class="key-badge">C</span> Crouch / Squeeze</div>
+      </div>
+      <p style="font-size:12px;color:#a89480;margin-bottom:20px;line-height:1.5;">
+        Excavate deep into solid bedrock! Beware <strong>Flying Skulls</strong> in dark caves. Skull hits deal damage and drop gold penalties, but accumulated gold powers <strong>Gold Armor Defense</strong> (up to 65% DR)!
+      </p>
+      <button id="btn-enter" class="btn-start">ENTER THE CAVE</button>
+    </div>
+  </div>
+
+  <div id="leaderboard-modal" class="screen-overlay" style="display:none;">
+    <div class="modal-box" style="max-width:660px;">
+      <h1 class="modal-title" style="color:#ff5555;text-shadow:0 0 15px rgba(255,60,60,.5);">RUN TERMINATED</h1>
+      <p class="modal-subtitle">Subterranean Survivor Performance Summary</p>
+      <div class="score-breakdown-card">
+        <div class="breakdown-row"><span>Gold Ore Collected (<span id="summary-gold">0</span> × 100):</span><span id="summary-gold-pts" style="color:#ffd700;">+0 PTS</span></div>
+        <div class="breakdown-row"><span>Bedrock Blocks Dug (<span id="summary-blocks">0</span> × 25):</span><span id="summary-blocks-pts" style="color:#ffd700;">+0 PTS</span></div>
+        <div class="breakdown-row"><span>Time Survived (<span id="summary-time">00:00</span> × 10):</span><span id="summary-time-pts" style="color:#ffd700;">+0 PTS</span></div>
+        <hr style="border:0;border-top:1px solid rgba(160,120,80,.3);margin:8px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:800;letter-spacing:1px;color:#fff;">FINAL TOTAL SCORE:</span><span class="final-score-val" id="summary-final-score">000,000</span></div>
+      </div>
+      <div class="name-input-group" id="name-submit-section">
+        <input type="text" id="player-name-input" class="name-input" placeholder="ENTER YOUR NAME" maxlength="16" value="SURVIVOR">
+        <button id="btn-submit-score" class="btn-start" style="padding:8px 20px;font-size:13px;">SUBMIT</button>
+      </div>
+      <div style="max-height:180px;overflow-y:auto;margin-bottom:16px;">
+        <table class="leaderboard-table" id="leaderboard-table">
+          <thead><tr><th>RANK</th><th>NAME</th><th>SCORE</th><th>GOLD</th><th>TIME</th></tr></thead>
+          <tbody id="leaderboard-body"></tbody>
+        </table>
+      </div>
+      <button id="btn-restart" class="btn-start">START NEW RUN</button>
+    </div>
+  </div>
+
+  <script>
+    class SoundEngine {
+      constructor(){this.ctx=null;this.initialized=false;}
+      init(){
+        if(this.initialized)return;
+        const AC=window.AudioContext||window.webkitAudioContext;
+        this.ctx=new AC();
+        this.initialized=true;
+        this.startCaveAmbience();
+      }
+      startCaveAmbience(){
+        if(!this.ctx)return;
+        const bs=this.ctx.sampleRate*2,buf=this.ctx.createBuffer(1,bs,this.ctx.sampleRate),d=buf.getChannelData(0);
+        let last=0;for(let i=0;i<bs;i++){const w=Math.random()*2-1;d[i]=(last+0.02*w)/1.02;last=d[i];d[i]*=3;}
+        const src=this.ctx.createBufferSource();src.buffer=buf;src.loop=true;
+        const flt=this.ctx.createBiquadFilter();flt.type='lowpass';flt.frequency.value=140;
+        const g=this.ctx.createGain();g.gain.value=0.22;
+        src.connect(flt);flt.connect(g);g.connect(this.ctx.destination);src.start(0);
+      }
+      playShoot(){
+        if(!this.ctx)return;const t=this.ctx.currentTime;
+        const osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+        osc.type='sawtooth';osc.frequency.setValueAtTime(440,t);osc.frequency.exponentialRampToValueAtTime(75,t+0.08);
+        g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.08);
+        osc.connect(g);g.connect(this.ctx.destination);osc.start(t);osc.stop(t+0.09);
+        const sub=this.ctx.createOscillator(),sg=this.ctx.createGain();
+        sub.type='sine';sub.frequency.setValueAtTime(160,t);sub.frequency.exponentialRampToValueAtTime(40,t+0.06);
+        sg.gain.setValueAtTime(0.35,t);sg.gain.exponentialRampToValueAtTime(0.001,t+0.06);
+        sub.connect(sg);sg.connect(this.ctx.destination);sub.start(t);sub.stop(t+0.07);
+      }
+      playSpatialDig(x,y,z){
+        if(!this.ctx)return;const t=this.ctx.currentTime,pMod=0.9+Math.random()*0.2,vMod=0.9+Math.random()*0.2;
+        const osc=this.ctx.createOscillator(),g=this.ctx.createGain(),flt=this.ctx.createBiquadFilter();
+        osc.type='square';osc.frequency.setValueAtTime((140+Math.random()*30)*pMod,t);osc.frequency.exponentialRampToValueAtTime(30,t+0.18);
+        g.gain.setValueAtTime(0.42*vMod,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.18);
+        flt.type='lowpass';flt.frequency.setValueAtTime(650*pMod,t);flt.frequency.exponentialRampToValueAtTime(80,t+0.18);
+        osc.connect(flt);flt.connect(g);g.connect(this.ctx.destination);osc.start(t);osc.stop(t+0.19);
+      }
+      playGoldMined(){
+        if(!this.ctx)return;const t=this.ctx.currentTime;
+        [659.25,880.00,1174.66].forEach((f,i)=>{
+          const osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+          osc.type='sine';osc.frequency.setValueAtTime(f,t+i*0.05);
+          g.gain.setValueAtTime(0,t+i*0.05);g.gain.linearRampToValueAtTime(0.25,t+i*0.05+0.01);g.gain.exponentialRampToValueAtTime(0.001,t+i*0.05+0.22);
+          osc.connect(g);g.connect(this.ctx.destination);osc.start(t+i*0.05);osc.stop(t+i*0.05+0.25);
+        });
+      }
+      playSkullSpawn(x,y,z){
+        if(!this.ctx)return;const t=this.ctx.currentTime,osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+        osc.type='sine';osc.frequency.setValueAtTime(1200,t);osc.frequency.exponentialRampToValueAtTime(320,t+0.45);
+        g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.2,t+0.04);g.gain.exponentialRampToValueAtTime(0.001,t+0.45);
+        osc.connect(g);g.connect(this.ctx.destination);osc.start(t);osc.stop(t+0.46);
+      }
+      playSkullWhoosh(){
+        if(!this.ctx)return;const t=this.ctx.currentTime,bs=this.ctx.sampleRate*0.35,buf=this.ctx.createBuffer(1,bs,this.ctx.sampleRate),d=buf.getChannelData(0);
+        for(let i=0;i<bs;i++)d[i]=Math.random()*2-1;
+        const src=this.ctx.createBufferSource();src.buffer=buf;
+        const flt=this.ctx.createBiquadFilter();flt.type='bandpass';flt.frequency.setValueAtTime(250,t);flt.frequency.exponentialRampToValueAtTime(950,t+0.15);flt.frequency.exponentialRampToValueAtTime(200,t+0.35);flt.Q.value=3;
+        const g=this.ctx.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.4,t+0.12);g.gain.exponentialRampToValueAtTime(0.001,t+0.35);
+        src.connect(flt);flt.connect(g);g.connect(this.ctx.destination);src.start(t);
+      }
+      playSkullDissolve(){
+        if(!this.ctx)return;const t=this.ctx.currentTime;
+        [880.00,1108.73,1318.51,1760.00].forEach((f,i)=>{
+          const osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+          osc.type='sine';osc.frequency.setValueAtTime(f,t+i*0.04);osc.frequency.exponentialRampToValueAtTime(f*1.5,t+i*0.04+0.4);
+          g.gain.setValueAtTime(0,t+i*0.04);g.gain.linearRampToValueAtTime(0.2,t+i*0.04+0.02);g.gain.exponentialRampToValueAtTime(0.001,t+i*0.04+0.45);
+          osc.connect(g);g.connect(this.ctx.destination);osc.start(t+i*0.04);osc.stop(t+i*0.04+0.5);
+        });
+      }
+      playPlayerHurt(){
+        if(!this.ctx)return;const t=this.ctx.currentTime,osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+        osc.type='sawtooth';osc.frequency.setValueAtTime(160,t);osc.frequency.exponentialRampToValueAtTime(45,t+0.2);
+        g.gain.setValueAtTime(0.4,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+        osc.connect(g);g.connect(this.ctx.destination);osc.start(t);osc.stop(t+0.22);
+      }
+      playDebrisBounce(){
+        if(!this.ctx)return;const t=this.ctx.currentTime,osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+        osc.type='sine';osc.frequency.setValueAtTime(180+Math.random()*120,t);osc.frequency.exponentialRampToValueAtTime(60,t+0.03);
+        g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.03);
+        osc.connect(g);g.connect(this.ctx.destination);osc.start(t);osc.stop(t+0.04);
+      }
+      playTreasurePickup(rare=false){
+        if(!this.ctx)return;const t=this.ctx.currentTime,notes=rare?[523.25,659.25,783.99,1046.50,1318.51]:[523.25,659.25,783.99,1046.50];
+        notes.forEach((f,i)=>{
+          const osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+          osc.type='triangle';osc.frequency.setValueAtTime(f,t+i*0.06);
+          g.gain.setValueAtTime(0,t+i*0.06);g.gain.linearRampToValueAtTime(0.3,t+i*0.06+0.01);g.gain.exponentialRampToValueAtTime(0.001,t+i*0.06+0.28);
+          osc.connect(g);g.connect(this.ctx.destination);osc.start(t+i*0.06);osc.stop(t+i*0.06+0.3);
+        });
+      }
+      playSecretFound(){
+        if(!this.ctx)return;const t=this.ctx.currentTime;
+        [329.63,392.00,493.88,659.25,987.77].forEach((f,i)=>{
+          const osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+          osc.type='sine';osc.frequency.setValueAtTime(f,t+i*0.08);
+          g.gain.setValueAtTime(0,t+i*0.08);g.gain.linearRampToValueAtTime(0.25,t+i*0.08+0.03);g.gain.exponentialRampToValueAtTime(0.001,t+i*0.08+0.8);
+          osc.connect(g);g.connect(this.ctx.destination);osc.start(t+i*0.08);osc.stop(t+i*0.08+0.85);
+        });
+      }
+      playFootstep(){
+        if(!this.ctx)return;const t=this.ctx.currentTime,osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+        osc.type='sine';osc.frequency.setValueAtTime(90+Math.random()*30,t);osc.frequency.exponentialRampToValueAtTime(35,t+0.04);
+        g.gain.setValueAtTime(0.12,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.04);
+        osc.connect(g);g.connect(this.ctx.destination);osc.start(t);osc.stop(t+0.05);
+      }
+      playOverheat(){
+        if(!this.ctx)return;const t=this.ctx.currentTime,osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+        osc.type='sawtooth';osc.frequency.setValueAtTime(220,t);osc.frequency.setValueAtTime(180,t+0.08);
+        g.gain.setValueAtTime(0.2,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.18);
+        osc.connect(g);g.connect(this.ctx.destination);osc.start(t);osc.stop(t+0.19);
+      }
+    }
+    const audio=new SoundEngine();
+
+    const Noise=(function(){
+      const p=new Uint8Array(256);for(let i=0;i<256;i++)p[i]=Math.floor(Math.random()*256);
+      const perm=new Uint8Array(512);for(let i=0;i<512;i++)perm[i]=p[i&255];
+      function fade(t){return t*t*t*(t*(t*6-15)+10);}
+      function lerp(t,a,b){return a+t*(b-a);}
+      function grad(hash,x,y,z){const h=hash&15,u=h<8?x:y,v=h<4?y:h===12||h===14?x:z;return((h&1)===0?u:-u)+((h&2)===0?v:-v);}
+      function noise3D(x,y,z){
+        const X=Math.floor(x)&255,Y=Math.floor(y)&255,Z=Math.floor(z)&255;
+        x-=Math.floor(x);y-=Math.floor(y);z-=Math.floor(z);
+        const u=fade(x),v=fade(y),w=fade(z);
+        const A=perm[X]+Y,AA=perm[A]+Z,AB=perm[A+1]+Z,B=perm[X+1]+Y,BA=perm[B]+Z,BB=perm[B+1]+Z;
+        return lerp(w,lerp(v,lerp(u,grad(perm[AA],x,y,z),grad(perm[BA],x-1,y,z)),lerp(u,grad(perm[AB],x,y-1,z),grad(perm[BB],x-1,y-1,z))),lerp(v,lerp(u,grad(perm[AA+1],x,y,z-1),grad(perm[BA+1],x-1,y,z-1)),lerp(u,grad(perm[AB+1],x,y-1,z-1),grad(perm[BB+1],x-1,y-1,z-1))));
+      }
+      function fbm3D(x,y,z,oct=3){let tot=0,freq=1,amp=1,mx=0;for(let i=0;i<oct;i++){tot+=noise3D(x*freq,y*freq,z*freq)*amp;mx+=amp;freq*=2;amp*=0.5;}return tot/mx;}
+      return{noise3D,fbm3D};
+    })();
+
+    class ProceduralTextureFactory {
+      static createRockDiffuse(){
+        const sz=512,c=document.createElement('canvas');c.width=c.height=sz;const ctx=c.getContext('2d'),img=ctx.createImageData(sz,sz),d=img.data;
+        for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){
+          const nx=x/sz,ny=y/sz,n1=Noise.fbm3D(nx*4,ny*4,0.5,3),n2=Noise.fbm3D(nx*14,ny*14,2.1,2)*0.25,strata=Math.sin(ny*20+n1*2.5)*0.12;
+          let val=Math.max(0.35,Math.min(0.85,0.52+n1*0.22+n2+strata)),idx=(y*sz+x)*4;
+          d[idx]=Math.floor(val*235);d[idx+1]=Math.floor(val*175*(0.85+n1*0.15));d[idx+2]=Math.floor(val*135*(0.80+n2*0.2));d[idx+3]=255;
+        }
+        ctx.putImageData(img,0,0);const tex=new THREE.CanvasTexture(c);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;return tex;
+      }
+      static createRockNormal(){
+        const sz=512,c=document.createElement('canvas');c.width=c.height=sz;const ctx=c.getContext('2d'),hData=new Float32Array(sz*sz);
+        for(let y=0;y<sz;y++)for(let x=0;x<sz;x++)hData[y*sz+x]=Noise.fbm3D(x/sz*6,y/sz*6,1.2,3)*0.7+Noise.fbm3D(x/sz*18,y/sz*18,3.7,2)*0.3;
+        const img=ctx.createImageData(sz,sz),d=img.data;
+        for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){
+          const xL=(x-1+sz)%sz,xR=(x+1)%sz,yU=(y-1+sz)%sz,yD=(y+1)%sz;
+          const dx=(hData[y*sz+xR]-hData[y*sz+xL])*3.5,dy=(hData[yD*sz+x]-hData[yU*sz+x])*3.5,len=Math.sqrt(dx*dx+dy*dy+1);
+          const idx=(y*sz+x)*4;d[idx]=Math.floor((dx/len*0.5+0.5)*255);d[idx+1]=Math.floor((-dy/len*0.5+0.5)*255);d[idx+2]=Math.floor((1/len*0.5+0.5)*255);d[idx+3]=255;
+        }
+        ctx.putImageData(img,0,0);const tex=new THREE.CanvasTexture(c);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;return tex;
+      }
+      static createAncientStoneDiffuse(){
+        const sz=512,c=document.createElement('canvas');c.width=c.height=sz;const ctx=c.getContext('2d'),img=ctx.createImageData(sz,sz),d=img.data;
+        for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){
+          const n=Noise.fbm3D(x/sz*8,y/sz*8,9.1,3),bx=(x%64<3||x%64>61)?0.25:0,by=(y%64<3||y%64>61)?0.25:0;
+          let val=Math.max(0.25,Math.min(0.85,0.55+n*0.15-(bx+by))),idx=(y*sz+x)*4;
+          d[idx]=Math.floor(val*180+35);d[idx+1]=Math.floor(val*165+30);d[idx+2]=Math.floor(val*150+25);d[idx+3]=255;
+        }
+        ctx.putImageData(img,0,0);const tex=new THREE.CanvasTexture(c);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;return tex;
+      }
+      static createGoldOreDiffuse(){
+        const sz=512,c=document.createElement('canvas');c.width=c.height=sz;const ctx=c.getContext('2d'),img=ctx.createImageData(sz,sz),d=img.data;
+        for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){
+          const nx=x/sz,ny=y/sz,n=Noise.fbm3D(nx*8,ny*8,3.3,3),goldVein=Math.sin(nx*28+n*6)*Math.cos(ny*28),idx=(y*sz+x)*4;
+          if(goldVein>0.35){d[idx]=255;d[idx+1]=215;d[idx+2]=30;}
+          else{let val=Math.max(0.35,Math.min(0.75,0.45+n*0.2));d[idx]=Math.floor(val*190);d[idx+1]=Math.floor(val*145);d[idx+2]=Math.floor(val*110);}
+          d[idx+3]=255;
+        }
+        ctx.putImageData(img,0,0);const tex=new THREE.CanvasTexture(c);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;return tex;
+      }
+    }
+
+    const MT_EDGE_PTS=[[0,1],[1,2],[2,0],[0,3],[1,3],[2,3]];
+    const MT_CASES=[[],[[0,2,3]],[[0,1,4]],[[2,3,4],[2,4,1]],[[1,2,5]],[[0,1,5],[0,5,3]],[[0,2,5],[0,5,4]],[[3,4,5]],[[3,5,4]],[[0,5,2],[0,4,5]],[[0,5,1],[0,3,5]],[[1,5,2]],[[2,4,3],[2,1,4]],[[0,4,1]],[[0,3,2]],[]];
+
+    class CaveChunk {
+      constructor(cx,cy,cz,size=6.0,res=7){
+        this.cx=cx;this.cy=cy;this.cz=cz;this.size=size;this.res=res;this.gridDim=res+1;this.step=size/res;
+        this.density=new Float32Array(this.gridDim**3);this.materialTag=new Uint8Array(this.gridDim**3);
+        this.mesh=null;this.dirty=true;this.initDensityField();
+      }
+      getIndex(gx,gy,gz){return gx+gy*this.gridDim+gz*this.gridDim*this.gridDim;}
+      initDensityField(){
+        const ox=this.cx*this.size,oy=this.cy*this.size,oz=this.cz*this.size;
+        const isSecret=(Math.abs(this.cx)>=3||Math.abs(this.cz)>=3)&&(Math.abs((this.cx*73856093^this.cy*19349663^this.cz*83492791))%5===0);
+        for(let gz=0;gz<this.gridDim;gz++)for(let gy=0;gy<this.gridDim;gy++)for(let gx=0;gx<this.gridDim;gx++){
+          const wx=ox+gx*this.step,wy=oy+gy*this.step,wz=oz+gz*this.step;
+          let d=1.0+Noise.noise3D(wx*0.15,wy*0.15,wz*0.15)*0.2,mat=0;
+          if(Noise.noise3D(wx*0.18+120,wy*0.18+120,wz*0.18+120)>0.68)mat=2;
+          else if(Math.abs(wy%4.0)<0.6)mat=1;
+          const sDistSq=(wx/2.6)**2+((wy-1.8)/1.4)**2+(wz/2.6)**2,sNoise=Noise.noise3D(wx*0.8,wy*0.8,wz*0.8)*0.25;
+          if(sDistSq<1.0+sNoise)d=(Math.sqrt(sDistSq)-(1.0+sNoise))*2.0;
+          if(isSecret){
+            const srx=(wx-(ox+this.size*0.5))/2.4,sry=(wy-(oy+this.size*0.5))/1.5,srz=(wz-(oz+this.size*0.5))/2.4,sdSq=srx*srx+sry*sry+srz*srz;
+            if(sdSq<1.0){d=(Math.sqrt(sdSq)-1.0)*2.0;mat=3;}
+          }
+          const idx=this.getIndex(gx,gy,gz);this.density[idx]=d;this.materialTag[idx]=mat;
+        }
+        if(isSecret){
+          setTimeout(()=>{if(window.game&&window.game.treasures)window.game.treasures.spawnSecretRoomTreasures(ox+this.size*0.5,oy+this.size*0.5,oz+this.size*0.5);},100);
+        }
+      }
+    }
+
+    class CaveWorld {
+      constructor(scene,materials){
+        this.scene=scene;this.materials=materials;this.chunkSize=6.0;this.resolution=7;
+        this.chunks=new Map();this.secretsDiscovered=0;this.initStarterWorld();
+      }
+      getChunk(cx,cy,cz){
+        const key=`${cx},${cy},${cz}`;
+        if(!this.chunks.has(key)){const chunk=new CaveChunk(cx,cy,cz,this.chunkSize,this.resolution);this.chunks.set(key,chunk);return chunk;}
+        return this.chunks.get(key);
+      }
+      initStarterWorld(){
+        for(let cx=-2;cx<=2;cx++)for(let cy=-1;cy<=1;cy++)for(let cz=-2;cz<=2;cz++)this.getChunk(cx,cy,cz);
+        this.rebuildAllDirtyChunks();
+      }
+      resetWorld(){
+        for(const chunk of this.chunks.values()){if(chunk.mesh){this.scene.remove(chunk.mesh);chunk.mesh.geometry.dispose();}}
+        this.chunks.clear();this.secretsDiscovered=0;this.initStarterWorld();
+      }
+      getDensity(wx,wy,wz){
+        const cx=Math.floor(wx/this.chunkSize),cy=Math.floor(wy/this.chunkSize),cz=Math.floor(wz/this.chunkSize),chunk=this.getChunk(cx,cy,cz);
+        const lx=(wx-cx*this.chunkSize)/chunk.step,ly=(wy-cy*this.chunkSize)/chunk.step,lz=(wz-cz*this.chunkSize)/chunk.step;
+        const x0=Math.max(0,Math.min(chunk.res-1,Math.floor(lx))),y0=Math.max(0,Math.min(chunk.res-1,Math.floor(ly))),z0=Math.max(0,Math.min(chunk.res-1,Math.floor(lz)));
+        const fx=Math.max(0,Math.min(1,lx-x0)),fy=Math.max(0,Math.min(1,ly-y0)),fz=Math.max(0,Math.min(1,lz-z0));
+        const d000=chunk.density[chunk.getIndex(x0,y0,z0)],d100=chunk.density[chunk.getIndex(x0+1,y0,z0)],d010=chunk.density[chunk.getIndex(x0,y0+1,z0)],d110=chunk.density[chunk.getIndex(x0+1,y0+1,z0)];
+        const d001=chunk.density[chunk.getIndex(x0,y0,z0+1)],d101=chunk.density[chunk.getIndex(x0+1,y0,z0+1)],d011=chunk.density[chunk.getIndex(x0,y0+1,z0+1)],d111=chunk.density[chunk.getIndex(x0+1,y0+1,z0+1)];
+        const c0=(d000*(1-fx)+d100*fx)*(1-fy)+(d010*(1-fx)+d110*fx)*fy,c1=(d001*(1-fx)+d101*fx)*(1-fy)+(d011*(1-fx)+d111*fx)*fy;
+        return c0*(1-fz)+c1*fz;
+      }
+      isSolid(wx,wy,wz){return this.getDensity(wx,wy,wz)>0;}
+      carveSphere(hitX,hitY,hitZ,radius=1.75){
+        const minCX=Math.floor((hitX-radius-0.5)/this.chunkSize),maxCX=Math.floor((hitX+radius+0.5)/this.chunkSize);
+        const minCY=Math.floor((hitY-radius-0.5)/this.chunkSize),maxCY=Math.floor((hitY+radius+0.5)/this.chunkSize);
+        const minCZ=Math.floor((hitZ-radius-0.5)/this.chunkSize),maxCZ=Math.floor((hitZ+radius+0.5)/this.chunkSize);
+        let discoveredSecret=false,minedGold=0;
+        for(let cz=minCZ;cz<=maxCZ;cz++)for(let cy=minCY;cy<=maxCY;cy++)for(let cx=minCX;cx<=maxCX;cx++){
+          const chunk=this.getChunk(cx,cy,cz),ox=cx*this.chunkSize,oy=cy*this.chunkSize,oz=cz*this.chunkSize;
+          let mod=false;
+          for(let gz=0;gz<chunk.gridDim;gz++)for(let gy=0;gy<chunk.gridDim;gy++)for(let gx=0;gx<chunk.gridDim;gx++){
+            const wx=ox+gx*chunk.step,wy=oy+gy*chunk.step,wz=oz+gz*chunk.step;
+            const dist=Math.hypot(wx-hitX,wy-hitY,wz-hitZ),effR=radius+Noise.noise3D(wx*1.4,wy*1.4,wz*1.4)*0.35;
+            if(dist<effR+0.5){
+              const cDist=dist-effR,idx=chunk.getIndex(gx,gy,gz);
+              if(cDist<chunk.density[idx]){
+                if(chunk.density[idx]>0){if(chunk.materialTag[idx]===3)discoveredSecret=true;else if(chunk.materialTag[idx]===2)minedGold++;}
+                chunk.density[idx]=cDist;mod=true;
+              }
+            }
+          }
+          if(mod)chunk.dirty=true;
+        }
+        this.rebuildAllDirtyChunks();
+        if(discoveredSecret)window.game.notifySecretDiscovered();
+        if(window.game&&window.game.skulls)window.game.skulls.trySpawnOnDig(hitX,hitY,hitZ);
+        if(minedGold>0){window.game.addGoldOre(minedGold*50);return true;}
+        return false;
+      }
+      rebuildChunkMesh(chunk){
+        if(!chunk.dirty)return;chunk.dirty=false;
+        if(chunk.mesh){this.scene.remove(chunk.mesh);chunk.mesh.geometry.dispose();chunk.mesh=null;}
+        const positions=[],normals=[],uvs=[],colors=[],matGrps=[[],[],[],[]];
+        const ox=chunk.cx*chunk.size,oy=chunk.cy*chunk.size,oz=chunk.cz*chunk.size,st=chunk.step;
+        for(let gz=0;gz<chunk.res;gz++)for(let gy=0;gy<chunk.res;gy++)for(let gx=0;gx<chunk.res;gx++){
+          const x=ox+gx*st,y=oy+gy*st,z=oz+gz*st;
+          const corners=[[x,y,z],[x+st,y,z],[x,y+st,z],[x+st,y+st,z],[x,y,z+st],[x+st,y,z+st],[x,y+st,z+st],[x+st,y+st,z+st]];
+          const dens=[chunk.density[chunk.getIndex(gx,gy,gz)],chunk.density[chunk.getIndex(gx+1,gy,gz)],chunk.density[chunk.getIndex(gx,gy+1,gz)],chunk.density[chunk.getIndex(gx+1,gy+1,gz)],chunk.density[chunk.getIndex(gx,gy,gz+1)],chunk.density[chunk.getIndex(gx+1,gy,gz+1)],chunk.density[chunk.getIndex(gx,gy+1,gz+1)],chunk.density[chunk.getIndex(gx+1,gy+1,gz+1)]];
+          const matIdx=chunk.materialTag[chunk.getIndex(gx,gy,gz)];
+          const tets=[[0,1,3,7],[0,2,6,7],[0,4,5,7],[0,1,5,7],[0,2,3,7],[0,4,6,7]];
+          for(const tet of tets){
+            const p0=corners[tet[0]],p1=corners[tet[1]],p2=corners[tet[2]],p3=corners[tet[3]],d0=dens[tet[0]],d1=dens[tet[1]],d2=dens[tet[2]],d3=dens[tet[3]];
+            let mask=(d0>0?1:0)|(d1>0?2:0)|(d2>0?4:0)|(d3>0?8:0),tris=MT_CASES[mask];if(!tris.length)continue;
+            const tPts=[p0,p1,p2,p3],tVals=[d0,d1,d2,d3];
+            for(const tri of tris){
+              const triVerts=[];
+              for(const e of tri){
+                const ep=MT_EDGE_PTS[e],ptA=tPts[ep[0]],ptB=tPts[ep[1]],valA=tVals[ep[0]],valB=tVals[ep[1]];
+                const t=(Math.abs(valB-valA)>1e-5)?-valA/(valB-valA):0.5;
+                triVerts.push([ptA[0]+t*(ptB[0]-ptA[0]),ptA[1]+t*(ptB[1]-ptA[1]),ptA[2]+t*(ptB[2]-ptA[2])]);
+              }
+              const vA=triVerts[0],vB=triVerts[1],vC=triVerts[2];
+              const abX=vB[0]-vA[0],abY=vB[1]-vA[1],abZ=vB[2]-vA[2],acX=vC[0]-vA[0],acY=vC[1]-vA[1],acZ=vC[2]-vA[2];
+              let nX=abY*acZ-abZ*acY,nY=abZ*acX-abX*acZ,nZ=abX*acY-abY*acX,nLen=Math.hypot(nX,nY,nZ);
+              if(nLen>1e-6){nX/=nLen;nY/=nLen;nZ/=nLen;}else{nX=0;nY=1;nZ=0;}
+              const startV=positions.length/3;
+              for(const v of triVerts){
+                positions.push(v[0],v[1],v[2]);normals.push(nX,nY,nZ);
+                const aX=Math.abs(nX),aY=Math.abs(nY),aZ=Math.abs(nZ);
+                if(aY>=aX&&aY>=aZ)uvs.push(v[0]*0.5,v[2]*0.5);else if(aX>=aZ)uvs.push(v[2]*0.5,v[1]*0.5);else uvs.push(v[0]*0.5,v[1]*0.5);
+                if(nY>0.35)colors.push(0.76,0.95,0.70);else colors.push(1.0,0.94,0.88);
+              }
+              matGrps[matIdx].push(startV,3);
+            }
+          }
+        }
+        if(!positions.length)return;
+        const geom=new THREE.BufferGeometry();
+        geom.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+        geom.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+        geom.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+        geom.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+        for(let m=0;m<4;m++)for(let k=0;k<matGrps[m].length;k+=2)geom.addGroup(matGrps[m][k],matGrps[m][k+1],m);
+        chunk.mesh=new THREE.Mesh(geom,this.materials);this.scene.add(chunk.mesh);
+      }
+      rebuildAllDirtyChunks(){for(const c of this.chunks.values())if(c.dirty)this.rebuildChunkMesh(c);}
+    }
+
+    class SkullEnemy {
+      constructor(scene){
+        this.scene=scene;this.active=false;this.position=new THREE.Vector3();this.velocity=new THREE.Vector3();
+        this.anchor=new THREE.Vector3();this.retreatDir=new THREE.Vector3();this.state='IDLE';this.stateTimer=0;
+        this.targetPlayerPos=new THREE.Vector3();this.chargeSpeed=9.5;this.patrolSpeed=1.8;this.retreatSpeed=4.5;
+        this.radius=0.42;this.baseDamage=25;this.goldPenalty=50;this.createMesh();
+      }
+      createMesh(){
+        this.group=new THREE.Group();
+        const boneMat=new THREE.MeshStandardMaterial({color:0xded6c8,roughness:0.65,metalness:0.1});
+        this.eyeMat=new THREE.MeshBasicMaterial({color:0x00ffff});
+        const cranium=new THREE.Mesh(new THREE.DodecahedronGeometry(0.32,1),boneMat);cranium.scale.set(1.0,1.15,1.25);cranium.position.y=0.05;
+        const jaw=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.14,0.28),boneMat);jaw.position.set(0,-0.22,0.08);
+        const lEye=new THREE.Mesh(new THREE.SphereGeometry(0.065,8,8),this.eyeMat);lEye.position.set(-0.11,0.02,0.32);
+        const rEye=new THREE.Mesh(new THREE.SphereGeometry(0.065,8,8),this.eyeMat);rEye.position.set(0.11,0.02,0.32);
+        this.eyeLight=new THREE.PointLight(0x00e5ff,1.2,5.0,2.0);this.eyeLight.position.set(0,0.02,0.35);
+        this.group.add(cranium,jaw,lEye,rEye,this.eyeLight);this.group.visible=false;this.scene.add(this.group);
+      }
+      spawn(x,y,z){
+        this.position.set(x,y,z);this.anchor.set(x,y,z);this.velocity.set(0,0,0);this.state='IDLE';this.stateTimer=0;
+        this.active=true;this.group.position.copy(this.position);this.group.visible=true;this.group.scale.set(1,1,1);
+        this.eyeMat.color.setHex(0x00ffff);this.eyeLight.color.setHex(0x00e5ff);this.eyeLight.intensity=1.2;
+        audio.playSkullSpawn(x,y,z);
+      }
+      takeHit(){
+        if(!this.active||this.state==='DISSOLVING')return;
+        this.state='DISSOLVING';this.stateTimer=0;audio.playSkullDissolve();
+        if(window.game){window.game.addScore(150,'SKULL PURIFIED');window.game.debrisManager.spawnDebris(this.position.x,this.position.y,this.position.z,4);}
+      }
+      deactivate(){this.active=false;this.group.visible=false;this.state='IDLE';}
+      update(dt,playerPos,caveWorld){
+        if(!this.active)return;
+        if(this.state==='DISSOLVING'){
+          this.stateTimer+=dt;const p=this.stateTimer/0.45;this.group.scale.setScalar(1.0+p*0.4);this.eyeLight.intensity=Math.max(0,2.0*(1.0-p));
+          if(p>=1.0)this.deactivate();return;
+        }
+        const dist=this.position.distanceTo(playerPos);
+        if(this.state!=='CHARGE')this.group.lookAt(playerPos.x,playerPos.y-0.2,playerPos.z);
+        if(this.state==='IDLE'){
+          this.stateTimer+=dt;this.position.y+=Math.sin(this.stateTimer*2.5)*0.008;
+          const toAnc=new THREE.Vector3().subVectors(this.anchor,this.position);
+          if(toAnc.lengthSq()>0.05)this.position.add(toAnc.normalize().multiplyScalar(this.patrolSpeed*dt));
+          if(dist<14.0){this.state='TELEGRAPH';this.stateTimer=0;this.eyeMat.color.setHex(0xff5500);this.eyeLight.color.setHex(0xff3300);this.eyeLight.intensity=2.5;audio.playSkullWhoosh();}
+        }else if(this.state==='TELEGRAPH'){
+          this.stateTimer+=dt;this.position.y+=Math.sin(this.stateTimer*25.0)*0.015;
+          if(this.stateTimer>=0.5){this.state='CHARGE';this.stateTimer=0;this.velocity.subVectors(playerPos,this.position).normalize().multiplyScalar(this.chargeSpeed);}
+        }else if(this.state==='CHARGE'){
+          this.stateTimer+=dt;this.position.addScaledVector(this.velocity,dt);
+          if(dist<1.1){
+            if(window.game)window.game.applyPlayerDamage(this.baseDamage,this.goldPenalty);
+            this.state='RETREAT';this.stateTimer=0;this.retreatDir.subVectors(this.position,playerPos).normalize();
+            this.eyeMat.color.setHex(0x00ffff);this.eyeLight.color.setHex(0x00e5ff);this.eyeLight.intensity=1.0;
+          }else if(this.stateTimer>1.2||caveWorld.isSolid(this.position.x,this.position.y,this.position.z)){
+            this.state='COOLDOWN';this.stateTimer=0;this.eyeMat.color.setHex(0x00ffff);this.eyeLight.color.setHex(0x00e5ff);this.eyeLight.intensity=1.0;
+          }
+        }else if(this.state==='RETREAT'){
+          this.stateTimer+=dt;this.position.addScaledVector(this.retreatDir,this.retreatSpeed*dt);
+          if(this.stateTimer>=1.5){this.state='COOLDOWN';this.stateTimer=0;}
+        }else if(this.state==='COOLDOWN'){
+          this.stateTimer+=dt;if(this.stateTimer>=1.5){this.state=(dist<14.0)?'TELEGRAPH':'IDLE';this.stateTimer=0;}
+        }
+        if(caveWorld.isSolid(this.position.x,this.position.y,this.position.z)){
+          const sd=0.4,dX=caveWorld.getDensity(this.position.x+sd,this.position.y,this.position.z)-caveWorld.getDensity(this.position.x-sd,this.position.y,this.position.z);
+          const dY=caveWorld.getDensity(this.position.x,this.position.y+sd,this.position.z)-caveWorld.getDensity(this.position.x,this.position.y-sd,this.position.z);
+          const dZ=caveWorld.getDensity(this.position.x,this.position.y,this.position.z+sd)-caveWorld.getDensity(this.position.x,this.position.y,this.position.z-sd);
+          this.position.addScaledVector(new THREE.Vector3(-dX,-dY,-dZ).normalize(),dt*3.5);
+        }
+        this.group.position.copy(this.position);
+      }
+    }
+
+    class SkullManager {
+      constructor(scene,caveWorld){
+        this.scene=scene;this.caveWorld=caveWorld;this.pool=[];this.maxActiveCap=8;
+        for(let i=0;i<12;i++)this.pool.push(new SkullEnemy(this.scene));
+      }
+      getActiveCount(){return this.pool.filter(s=>s.active).length;}
+      despawnAll(){for(const s of this.pool)s.deactivate();}
+      trySpawnOnDig(hitX,hitY,hitZ){
+        if(Math.hypot(hitX,hitY-2.0,hitZ)<10.0||this.getActiveCount()>=this.maxActiveCap)return;
+        const depth=Math.max(0,2.0-hitY),chance=Math.min(0.40,0.12+(depth/10.0)*0.02);
+        if(Math.random()<chance){
+          const count=Math.min(this.maxActiveCap-this.getActiveCount(),1+Math.floor(Math.random()*2));
+          for(let i=0;i<count;i++){
+            const ang=Math.random()*Math.PI*2,dist=2.2+Math.random()*1.5,sx=hitX+Math.cos(ang)*dist,sy=hitY+(Math.random()-0.5)*1.5,sz=hitZ+Math.sin(ang)*dist;
+            if(!this.caveWorld.isSolid(sx,sy,sz)){const sk=this.pool.find(s=>!s.active);if(sk)sk.spawn(sx,sy,sz);}
+          }
+        }
+      }
+      checkRaycastHit(origin,dir,maxDist=9.0){
+        const ray=new THREE.Ray(origin,dir);
+        for(const s of this.pool){
+          if(!s.active||s.state==='DISSOLVING')continue;
+          if(ray.intersectsSphere(new THREE.Sphere(s.position,s.radius))&&origin.distanceTo(s.position)<=maxDist){s.takeHit();return true;}
+        }
+        return false;
+      }
+      update(dt,pPos){for(const s of this.pool)if(s.active)s.update(dt,pPos,this.caveWorld);}
+    }
+
+    class DebrisManager {
+      constructor(scene,caveWorld){
+        this.scene=scene;this.caveWorld=caveWorld;this.debrisList=[];
+        this.rockMat=new THREE.MeshStandardMaterial({color:0x6e5238,roughness:0.9,metalness:0.1});
+        this.goldMat=new THREE.MeshStandardMaterial({color:0xffd700,roughness:0.3,metalness:0.85,emissive:0x442200});
+      }
+      clearAll(){for(const d of this.debrisList){this.scene.remove(d.mesh);d.mesh.geometry.dispose();}this.debrisList=[];}
+      spawnDebris(wx,wy,wz,count=6,isGold=false){
+        const mat=isGold?this.goldMat:this.rockMat;
+        for(let i=0;i<count;i++){
+          const sz=0.10+Math.random()*0.15,geom=new THREE.DodecahedronGeometry(sz,0),pAttr=geom.attributes.position;
+          for(let j=0;j<pAttr.count;j++)pAttr.setXYZ(j,pAttr.getX(j)*(0.7+Math.random()*0.6),pAttr.getY(j)*(0.7+Math.random()*0.6),pAttr.getZ(j)*(0.7+Math.random()*0.6));
+          geom.computeVertexNormals();const mesh=new THREE.Mesh(geom,mat);
+          mesh.position.set(wx+(Math.random()-0.5)*0.6,wy+(Math.random()-0.5)*0.6,wz+(Math.random()-0.5)*0.6);
+          this.scene.add(mesh);
+          this.debrisList.push({mesh,vel:new THREE.Vector3((Math.random()-0.5)*4.5,Math.random()*3.5+1.2,(Math.random()-0.5)*4.5),angVel:new THREE.Vector3((Math.random()-0.5)*10,(Math.random()-0.5)*10,(Math.random()-0.5)*10),isSleeping:false,bounces:0});
+        }
+      }
+      pulverizeDebrisNear(x,y,z,r=0.9){
+        const pos=new THREE.Vector3(x,y,z);
+        for(let i=this.debrisList.length-1;i>=0;i--)if(this.debrisList[i].mesh.position.distanceTo(pos)<r){
+          this.scene.remove(this.debrisList[i].mesh);this.debrisList[i].mesh.geometry.dispose();this.debrisList.splice(i,1);
+        }
+      }
+      update(dt){
+        for(const d of this.debrisList){
+          if(d.isSleeping)continue;
+          d.vel.y+=-18.0*dt;const nX=d.mesh.position.x+d.vel.x*dt,nY=d.mesh.position.y+d.vel.y*dt,nZ=d.mesh.position.z+d.vel.z*dt;
+          if(this.caveWorld.isSolid(nX,nY,nZ)){
+            if(this.caveWorld.isSolid(d.mesh.position.x,nY-0.08,d.mesh.position.z)){
+              d.vel.y*=-0.35;d.vel.x*=0.65;d.vel.z*=0.65;d.bounces++;
+              if(d.bounces<3&&Math.abs(d.vel.y)>0.7)audio.playDebrisBounce();
+              if(Math.abs(d.vel.y)<0.3&&Math.hypot(d.vel.x,d.vel.z)<0.2)d.isSleeping=true;
+            }else{d.vel.x*=-0.4;d.vel.z*=-0.4;}
+          }else{d.mesh.position.set(nX,nY,nZ);}
+          d.mesh.rotation.x+=d.angVel.x*dt;d.mesh.rotation.y+=d.angVel.y*dt;d.mesh.rotation.z+=d.angVel.z*dt;d.angVel.multiplyScalar(0.95);
+        }
+      }
+    }
+
+    class TreasureSystem {
+      constructor(scene,caveWorld){
+        this.scene=scene;this.caveWorld=caveWorld;this.treasures=[];
+        this.goldMat=new THREE.MeshStandardMaterial({color:0xffd700,metalness:0.95,roughness:0.2,emissive:0x332200});
+        this.rubyMat=new THREE.MeshStandardMaterial({color:0xff1133,metalness:0.3,roughness:0.1,emissive:0x660011});
+        this.crysMat=new THREE.MeshStandardMaterial({color:0x00ffff,metalness:0.2,roughness:0.1,emissive:0x004466});
+      }
+      clearAll(){for(const t of this.treasures)this.scene.remove(t.group);this.treasures=[];}
+      spawnSecretRoomTreasures(cx,cy,cz){
+        const types=['CHALICE','CHEST','CROSS','CROWN','CRYSTAL'];
+        this.spawnTreasure(cx,cy,cz,types[Math.floor(Math.random()*types.length)]);
+        this.spawnTreasure(cx-1.2,cy,cz,'INGOT');this.spawnTreasure(cx+1.2,cy,cz,'INGOT');
+      }
+      spawnTreasure(x,y,z,type){
+        const grp=new THREE.Group();let val=500,nm='GOLD CHALICE',rare=false;
+        if(type==='CHALICE'){
+          const b=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,0.08,16),this.goldMat);
+          const st=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.3,12),this.goldMat);st.position.y=0.18;
+          const cp=new THREE.Mesh(new THREE.CylinderGeometry(0.26,0.1,0.35,16),this.goldMat);cp.position.y=0.48;
+          grp.add(b,st,cp);val=500;nm='GOLDEN CHALICE';
+        }else if(type==='CROSS'){
+          const vb=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.7,0.12),this.goldMat);
+          const hb=new THREE.Mesh(new THREE.BoxGeometry(0.48,0.16,0.12),this.goldMat);hb.position.y=0.12;
+          const gm=new THREE.Mesh(new THREE.OctahedronGeometry(0.09,0),this.rubyMat);gm.position.set(0,0.12,0.07);
+          grp.add(vb,hb,gm);val=1000;nm='JEWELED GOLD CROSS';rare=true;
+        }else if(type==='CROWN'){
+          const r=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,0.22,16),this.goldMat);
+          const tg=new THREE.Mesh(new THREE.OctahedronGeometry(0.12,0),this.rubyMat);tg.position.y=0.22;
+          grp.add(r,tg);val=2500;nm='IMPERIAL RUBY CROWN';rare=true;
+        }else if(type==='CHEST'){
+          grp.add(new THREE.Mesh(new THREE.BoxGeometry(0.55,0.38,0.4),this.goldMat));val=1500;nm='ANCIENT RELIC CHEST';rare=true;
+        }else if(type==='CRYSTAL'){
+          grp.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.28,0),this.crysMat));val=300;nm='AETHER CRYSTAL';
+        }else{
+          grp.add(new THREE.Mesh(new THREE.BoxGeometry(0.38,0.14,0.22),this.goldMat));val=250;nm='GOLD INGOT';
+        }
+        grp.position.set(x,y,z);this.scene.add(grp);
+        this.treasures.push({group:grp,name:nm,value:val,isRare:rare,velY:0,rotSpeed:1.5+Math.random(),collected:false});
+      }
+      update(dt,pPos){
+        for(let i=this.treasures.length-1;i>=0;i--){
+          const t=this.treasures[i];if(t.collected)continue;
+          t.group.rotation.y+=t.rotSpeed*dt;
+          if(!this.caveWorld.isSolid(t.group.position.x,t.group.position.y-0.2,t.group.position.z)){t.velY+=-16.0*dt;t.group.position.y+=t.velY*dt;}else{t.velY=0;}
+          if(t.group.position.distanceTo(pPos)<1.6){
+            t.collected=true;this.scene.remove(t.group);this.treasures.splice(i,1);
+            audio.playTreasurePickup(t.isRare);
+            if(window.game)window.game.addRelic(t.value,t.name,t.isRare);
+          }
+        }
+      }
+    }
+
+    class MiningWeapon {
+      constructor(scene,camera,caveWorld,debrisManager){
+        this.scene=scene;this.camera=camera;this.caveWorld=caveWorld;this.debrisManager=debrisManager;
+        this.energy=100.0;this.maxEnergy=100.0;this.isOverheated=false;this.overheatCooldown=0;
+        this.energyCostPerShot=3.2;this.rechargeRate=48.0;this.idleTime=0;this.fireRate=0.09;this.fireTimer=0;this.isFiring=false;
+        this.createWeaponModel();
+      }
+      createWeaponModel(){
+        this.weaponGroup=new THREE.Group();
+        const gMat=new THREE.MeshStandardMaterial({color:0x222428,metalness:0.85,roughness:0.25});
+        const cMat=new THREE.MeshStandardMaterial({color:0x9e5e32,metalness:0.9,roughness:0.3});
+        this.glowMat=new THREE.MeshBasicMaterial({color:0x00d9ff});
+        const body=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.22,0.7),gMat);
+        const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.07,0.45,16),gMat);barrel.rotation.x=Math.PI/2;barrel.position.set(0,0.02,-0.45);
+        const coils=new THREE.Mesh(new THREE.TorusGeometry(0.09,0.025,8,24),cMat);coils.position.set(0,0.02,-0.32);
+        const laser=new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.025,0.3,12),this.glowMat);laser.rotation.x=Math.PI/2;laser.position.set(0,0.02,-0.32);
+        this.weaponGroup.add(body,barrel,coils,laser);this.weaponGroup.position.set(0.32,-0.28,-0.65);
+        this.camera.add(this.weaponGroup);this.scene.add(this.camera);
+        this.basePos=this.weaponGroup.position.clone();this.recoil=new THREE.Vector3();
+        this.muzzleLight=new THREE.PointLight(0x00e1ff,0,8);this.muzzleLight.position.set(0.32,-0.24,-1.2);this.camera.add(this.muzzleLight);
+      }
+      triggerShoot(){
+        if(this.isOverheated||this.energy<this.energyCostPerShot){
+          if(!this.isOverheated&&this.energy<this.energyCostPerShot){this.isOverheated=true;this.overheatCooldown=1.4;audio.playOverheat();}
+          return;
+        }
+        this.energy-=this.energyCostPerShot;this.idleTime=0;
+        if(this.energy<=0){this.energy=0;this.isOverheated=true;this.overheatCooldown=1.4;audio.playOverheat();}
+        audio.playShoot();this.recoil.z=0.12;this.recoil.y=0.03;this.muzzleLight.intensity=3.5;
+        this.performDigRaycast();
+      }
+      performDigRaycast(){
+        const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2(0,0),this.camera);
+        if(window.game&&window.game.skulls&&window.game.skulls.checkRaycastHit(ray.ray.origin,ray.ray.direction,9.0))return;
+        let cPos=ray.ray.origin.clone(),dir=ray.ray.direction.clone().multiplyScalar(0.12),hit=null;
+        for(let d=0;d<9.0;d+=0.12){cPos.add(dir);if(this.caveWorld.isSolid(cPos.x,cPos.y,cPos.z)){hit=cPos.clone();break;}}
+        const cross=document.getElementById('crosshair-container'),warn=document.getElementById('footing-warning');
+        if(!hit){cross.className='';warn.style.opacity='0';return;}
+        const pPos=window.game.player.position;
+        if(Math.hypot(pPos.x-hit.x,pPos.z-hit.z)<0.65&&hit.y<=pPos.y-window.game.player.height+0.2){
+          cross.className='crosshair-locked';warn.style.opacity='1';return;
+        }
+        cross.className='crosshair-mining';warn.style.opacity='0';
+        this.debrisManager.pulverizeDebrisNear(hit.x,hit.y,hit.z,1.2);
+        const hitGold=this.caveWorld.carveSphere(hit.x,hit.y,hit.z,1.75);
+        this.debrisManager.spawnDebris(hit.x,hit.y,hit.z,6,hitGold);
+        if(hitGold)audio.playGoldMined();else audio.playSpatialDig(hit.x,hit.y,hit.z);
+        window.game.addMinedBlock(1);
+      }
+      update(dt){
+        this.recoil.lerp(new THREE.Vector3(0,0,0),dt*15.0);
+        this.weaponGroup.position.copy(this.basePos).add(this.recoil);
+        this.muzzleLight.intensity=Math.max(0,this.muzzleLight.intensity-dt*25.0);
+        if(this.isFiring){
+          this.fireTimer+=dt;if(this.fireTimer>=this.fireRate){this.fireTimer=0;this.triggerShoot();}
+        }else{
+          this.fireTimer=this.fireRate;this.idleTime+=dt;
+          if(this.isOverheated){this.overheatCooldown-=dt;if(this.overheatCooldown<=0)this.isOverheated=false;}
+          else if(this.idleTime>0.15&&this.energy<this.maxEnergy)this.energy=Math.min(this.maxEnergy,this.energy+this.rechargeRate*dt);
+        }
+        const eBar=document.getElementById('energy-bar'),eTxt=document.getElementById('energy-text'),pct=(this.energy/this.maxEnergy)*100;
+        eBar.style.width=`${pct}%`;eTxt.textContent=this.isOverheated?'OVERHEATED':`${Math.floor(pct)}%`;
+        if(this.isOverheated){eBar.className='overheated';this.glowMat.color.setHex(0xff2200);}
+        else{eBar.className=(this.energy<this.maxEnergy&&!this.isFiring)?'recharging':'';this.glowMat.color.setHex(0x00d9ff);}
+      }
+    }
+
+    class PlayerController {
+      constructor(camera,caveWorld,domElement){
+        this.camera=camera;this.caveWorld=caveWorld;this.domElement=domElement;
+        this.position=new THREE.Vector3(0,2.0,0);this.velocity=new THREE.Vector3();this.isGrounded=true;
+        this.pitch=0;this.yaw=0;this.height=1.6;this.radius=0.32;
+        this.keys={forward:false,backward:false,left:false,right:false,jump:false,sprint:false,crouch:false};
+        this.isLocked=false;this.footstepTimer=0;this.initControls();
+      }
+      initControls(){
+        document.addEventListener('mousemove',(e)=>{
+          if(!this.isLocked||(window.game&&window.game.isGameOver))return;
+          this.yaw-=e.movementX*0.0022;this.pitch-=e.movementY*0.0022;
+          this.pitch=Math.max(-Math.PI/2.05,Math.min(Math.PI/2.05,this.pitch));
+        });
+        document.addEventListener('keydown',(e)=>{
+          if(window.game&&window.game.isGameOver)return;
+          if(e.code==='KeyW')this.keys.forward=true;if(e.code==='KeyS')this.keys.backward=true;
+          if(e.code==='KeyA')this.keys.left=true;if(e.code==='KeyD')this.keys.right=true;
+          if(e.code==='Space')this.keys.jump=true;if(e.code==='ShiftLeft')this.keys.sprint=true;if(e.code==='KeyC')this.keys.crouch=true;
+        });
+        document.addEventListener('keyup',(e)=>{
+          if(e.code==='KeyW')this.keys.forward=false;if(e.code==='KeyS')this.keys.backward=false;
+          if(e.code==='KeyA')this.keys.left=false;if(e.code==='KeyD')this.keys.right=false;
+          if(e.code==='Space')this.keys.jump=false;if(e.code==='ShiftLeft')this.keys.sprint=false;if(e.code==='KeyC')this.keys.crouch=false;
+        });
+        document.addEventListener('mousedown',(e)=>{if(this.isLocked&&e.button===0&&(!window.game||!window.game.isGameOver))window.game.weapon.isFiring=true;});
+        document.addEventListener('mouseup',(e)=>{if(e.button===0&&window.game)window.game.weapon.isFiring=false;});
+      }
+      update(dt){
+        const euler=new THREE.Euler(this.pitch,this.yaw,0,'YXZ');this.camera.quaternion.setFromEuler(euler);
+        const spd=this.keys.sprint?7.2:(this.keys.crouch?2.5:4.5),mDir=new THREE.Vector3();
+        if(this.keys.forward)mDir.z-=1;if(this.keys.backward)mDir.z+=1;if(this.keys.left)mDir.x-=1;if(this.keys.right)mDir.x+=1;
+        if(mDir.lengthSq()>0){
+          mDir.normalize().applyEuler(new THREE.Euler(0,this.yaw,0,'YXZ'));
+          this.velocity.x=mDir.x*spd;this.velocity.z=mDir.z*spd;
+          if(this.isGrounded){this.footstepTimer+=dt*(this.keys.sprint?1.6:1.0);if(this.footstepTimer>0.42){this.footstepTimer=0;audio.playFootstep();}}
+        }else{this.velocity.x=0;this.velocity.z=0;}
+        if(this.keys.jump&&this.isGrounded){this.velocity.y=7.0;this.isGrounded=false;}
+        this.velocity.y+=-20.0*dt;
+        this.resolveCollisions(dt);
+        this.camera.position.copy(this.position);
+      }
+      resolveCollisions(dt){
+        const nX=this.position.x+this.velocity.x*dt;
+        if(!this.checkCapsule(nX,this.position.y,this.position.z))this.position.x=nX;
+        else if(!this.checkCapsule(nX,this.position.y+0.35,this.position.z)){this.position.x=nX;this.position.y+=0.15;}else this.velocity.x=0;
+        const nZ=this.position.z+this.velocity.z*dt;
+        if(!this.checkCapsule(this.position.x,this.position.y,nZ))this.position.z=nZ;
+        else if(!this.checkCapsule(this.position.x,this.position.y+0.35,nZ)){this.position.z=nZ;this.position.y+=0.15;}else this.velocity.z=0;
+        const nY=this.position.y+this.velocity.y*dt;
+        if(!this.checkCapsule(this.position.x,nY,this.position.z)){this.position.y=nY;this.isGrounded=false;}
+        else{if(this.velocity.y<0)this.isGrounded=true;this.velocity.y=0;}
+      }
+      checkCapsule(px,py,pz){
+        const r=this.radius,feet=py-this.height;
+        for(let y=feet+0.15;y<=py;y+=0.45)for(let a=0;a<Math.PI*2;a+=Math.PI/4)if(this.caveWorld.isSolid(px+Math.cos(a)*r,y,pz+Math.sin(a)*r))return true;
+        return this.caveWorld.isSolid(px,feet+0.05,pz)||this.caveWorld.isSolid(px,py-0.05,pz);
+      }
+    }
+
+    class LeaderboardManager {
+      static STORAGE_KEY='cavetta_leaderboard_v1';
+      static getScores(){
+        try{const raw=localStorage.getItem(this.STORAGE_KEY);return raw?JSON.parse(raw):this.getDefaultScores();}catch(e){return this.getDefaultScores();}
+      }
+      static getDefaultScores(){
+        return[{name:"DOOM_GUY",score:12500,gold:80,blocks:150,time:"04:30"},{name:"CRAWLER",score:8400,gold:50,blocks:110,time:"03:15"},{name:"SPELUNKER",score:4200,gold:25,blocks:60,time:"01:45"}];
+      }
+      static saveScore(entry){
+        try{
+          const s=this.getScores();s.push(entry);s.sort((a,b)=>b.score-a.score);const top=s.slice(0,10);
+          localStorage.setItem(this.STORAGE_KEY,JSON.stringify(top));return top;
+        }catch(e){return this.getScores();}
+      }
+    }
+
+    class CaveApp {
+      constructor(){
+        this.initRenderer();this.initScene();this.initMaterials();this.initEntities();this.initHUD();this.initEventListeners();this.animate();
+      }
+      initRenderer(){
+        this.container=document.getElementById('canvas-container');
+        this.renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+        this.renderer.setSize(window.innerWidth,window.innerHeight);this.renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+        this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.55;
+        this.container.appendChild(this.renderer.domElement);
+      }
+      initScene(){
+        this.scene=new THREE.Scene();this.scene.fog=new THREE.Fog(0x100e0e,35.0,110.0);this.scene.background=new THREE.Color(0x100e0e);
+        this.camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,150);
+        const amb=new THREE.AmbientLight(0xffffff,0.5);amb.color.setRGB(1.05*0.45,1.08*0.45,1.15*0.45);this.scene.add(amb);
+        this.playerLamp=new THREE.PointLight(0xffedd4,2.2,28,1.4);this.scene.add(this.playerLamp);
+        this.scene.add(new THREE.HemisphereLight(0x7a6858,0x221812,0.7));
+      }
+      initMaterials(){
+        const rDiff=ProceduralTextureFactory.createRockDiffuse(),rNorm=ProceduralTextureFactory.createRockNormal();
+        const aDiff=ProceduralTextureFactory.createAncientStoneDiffuse(),gDiff=ProceduralTextureFactory.createGoldOreDiffuse();
+        const rockMat=new THREE.MeshStandardMaterial({map:rDiff,bumpMap:rNorm,bumpScale:0.08,roughness:0.85,metalness:0.1,vertexColors:true,side:THREE.DoubleSide});
+        const hardMat=new THREE.MeshStandardMaterial({map:rDiff,bumpMap:rNorm,bumpScale:0.12,color:0x857060,roughness:0.9,metalness:0.15,vertexColors:true,side:THREE.DoubleSide});
+        const goldMat=new THREE.MeshStandardMaterial({map:gDiff,bumpMap:rNorm,bumpScale:0.1,roughness:0.35,metalness:0.85,emissive:0x442c00,vertexColors:true,side:THREE.DoubleSide});
+        const ancMat=new THREE.MeshStandardMaterial({map:aDiff,bumpMap:rNorm,bumpScale:0.06,roughness:0.8,metalness:0.15,vertexColors:true,side:THREE.DoubleSide});
+        this.caveMaterials=[rockMat,hardMat,goldMat,ancMat];
+      }
+      initEntities(){
+        this.caveWorld=new CaveWorld(this.scene,this.caveMaterials);
+        this.debrisManager=new DebrisManager(this.scene,this.caveWorld);
+        this.treasures=new TreasureSystem(this.scene,this.caveWorld);
+        this.skulls=new SkullManager(this.scene,this.caveWorld);
+        this.player=new PlayerController(this.camera,this.caveWorld,this.renderer.domElement);
+        this.weapon=new MiningWeapon(this.scene,this.camera,this.caveWorld,this.debrisManager);
+        this.health=100;this.maxHealth=100;this.invulnerabilityTimer=0;this.survivalTime=0;this.isGameOver=false;
+        this.goldPoints=0;this.minedCount=0;this.relicsCount=0;this.clock=new THREE.Clock();
+      }
+      initHUD(){
+        this.hpBar=document.getElementById('hp-bar');this.armorBadge=document.getElementById('armor-badge');
+        this.timerDisplay=document.getElementById('timer-display');this.damageVignette=document.getElementById('damage-vignette');
+        this.goldDisplay=document.getElementById('gold-display');this.relicsDisplay=document.getElementById('relics-display');
+        this.minedDisplay=document.getElementById('mined-display');this.depthCoord=document.getElementById('depth-coord');
+        this.sectorCoord=document.getElementById('sector-coord');this.bannerContainer=document.getElementById('banner-container');
+        this.leaderboardModal=document.getElementById('leaderboard-modal');this.leaderboardBody=document.getElementById('leaderboard-body');
+      }
+      initEventListeners(){
+        window.addEventListener('resize',()=>{this.camera.aspect=window.innerWidth/window.innerHeight;this.camera.updateProjectionMatrix();this.renderer.setSize(window.innerWidth,window.innerHeight);});
+        const startModal=document.getElementById('start-modal'),btnEnter=document.getElementById('btn-enter');
+        btnEnter.addEventListener('click',()=>{audio.init();this.renderer.domElement.requestPointerLock();});
+        document.addEventListener('pointerlockchange',()=>{
+          if(document.pointerLockElement===this.renderer.domElement){this.player.isLocked=true;startModal.style.display='none';}
+          else{this.player.isLocked=false;if(!this.isGameOver){startModal.style.display='flex';btnEnter.textContent='RESUME EXCAVATION';}}
+        });
+        document.getElementById('btn-submit-score').addEventListener('click',()=>{
+          const pName=(document.getElementById('player-name-input').value||"SURVIVOR").trim().substring(0,16);
+          const fScore=this.computeFinalScore(),tStr=this.formatTime(this.survivalTime);
+          const updated=LeaderboardManager.saveScore({name:pName,score:fScore,gold:this.goldPoints,blocks:this.minedCount,time:tStr});
+          this.renderLeaderboard(updated,pName);document.getElementById('name-submit-section').style.display='none';
+        });
+        document.getElementById('btn-restart').addEventListener('click',()=>this.resetGame());
+      }
+      formatTime(sec){return `${Math.floor(sec/60).toString().padStart(2,'0')}:${Math.floor(sec%60).toString().padStart(2,'0')}`;}
+      getGoldResistance(){return Math.min(0.65,(this.goldPoints/2500)*0.65);}
+      computeFinalScore(){return(this.goldPoints*100)+(this.minedCount*25)+(Math.floor(this.survivalTime)*10);}
+      applyPlayerDamage(baseDamage,goldPenalty){
+        if(this.invulnerabilityTimer>0||this.isGameOver)return;
+        const dr=this.getGoldResistance(),dmg=Math.max(5,Math.round(baseDamage*(1.0-dr)));
+        this.health=Math.max(0,this.health-dmg);this.invulnerabilityTimer=1.2;
+        const pen=Math.min(this.goldPoints,goldPenalty);this.goldPoints-=pen;
+        audio.playPlayerHurt();this.damageVignette.className='hit';setTimeout(()=>this.damageVignette.className='',180);
+        this.updateHUD();
+        if(pen>0){
+          const p=document.createElement('div');p.className='penalty-popup';p.style.top='60%';p.style.left='50%';p.innerHTML=`-${pen} GOLD PENALTY!`;
+          document.body.appendChild(p);setTimeout(()=>p.remove(),1200);
+        }
+        if(this.health<=0)this.handlePlayerDeath();
+      }
+      handlePlayerDeath(){
+        this.isGameOver=true;this.player.isLocked=false;if(document.exitPointerLock)document.exitPointerLock();
+        const score=this.computeFinalScore(),tStr=this.formatTime(this.survivalTime);
+        document.getElementById('summary-gold').textContent=this.goldPoints;document.getElementById('summary-gold-pts').textContent=`+${this.goldPoints*100} PTS`;
+        document.getElementById('summary-blocks').textContent=this.minedCount;document.getElementById('summary-blocks-pts').textContent=`+${this.minedCount*25} PTS`;
+        document.getElementById('summary-time').textContent=tStr;document.getElementById('summary-time-pts').textContent=`+${Math.floor(this.survivalTime)*10} PTS`;
+        document.getElementById('summary-final-score').textContent=score.toLocaleString();
+        document.getElementById('name-submit-section').style.display='flex';
+        this.renderLeaderboard(LeaderboardManager.getScores());
+        this.leaderboardModal.style.display='flex';
+      }
+      renderLeaderboard(scores,highlight=""){
+        this.leaderboardBody.innerHTML='';
+        scores.forEach((s,idx)=>{
+          const tr=document.createElement('tr');if(highlight&&s.name===highlight)tr.className='highlight';
+          tr.innerHTML=`<td>#${idx+1}</td><td>${s.name}</td><td style="color:#ffd700;font-weight:700;">${s.score.toLocaleString()}</td><td>${s.gold}</td><td>${s.time}</td>`;
+          this.leaderboardBody.appendChild(tr);
+        });
+      }
+      resetGame(){
+        this.leaderboardModal.style.display='none';this.isGameOver=false;
+        this.caveWorld.resetWorld();this.debrisManager.clearAll();this.treasures.clearAll();this.skulls.despawnAll();
+        this.health=this.maxHealth;this.invulnerabilityTimer=0;this.survivalTime=0;this.goldPoints=0;this.minedCount=0;this.relicsCount=0;
+        this.player.position.set(0,2.0,0);this.player.velocity.set(0,0,0);this.weapon.energy=this.weapon.maxEnergy;this.weapon.isOverheated=false;
+        this.updateHUD();this.renderer.domElement.requestPointerLock();
+      }
+      addRelic(amount,name='',isRare=false){
+        this.goldPoints+=amount;this.relicsCount++;this.updateHUD();
+        if(name){
+          const p=document.createElement('div');p.className='pickup-popup';p.style.top='55%';p.style.left='50%';p.innerHTML=`+${amount} GOLD<br><span style="font-size:11px;color:#fff;">${name}</span>`;
+          document.body.appendChild(p);setTimeout(()=>p.remove(),1200);
+        }
+      }
+      addGoldOre(amount){
+        this.goldPoints+=amount;this.updateHUD();
+        const p=document.createElement('div');p.className='pickup-popup';p.style.top='58%';p.style.left='50%';p.innerHTML=`+${amount} GOLD ORE!`;
+        document.body.appendChild(p);setTimeout(()=>p.remove(),1000);
+      }
+      addMinedBlock(amount=1){this.minedCount+=amount;this.minedDisplay.innerHTML=`${this.minedCount} <span style="font-size:11px;color:#a89480;">BLKS</span>`;}
+      updateHUD(){
+        this.hpBar.style.width=`${(this.health/this.maxHealth)*100}%`;
+        this.armorBadge.textContent=`ARMOR: +${Math.round(this.getGoldResistance()*100)}% DEF`;
+        this.goldDisplay.innerHTML=`${this.goldPoints} <span style="font-size:11px;color:#f3c252;">GOLD</span>`;
+        this.relicsDisplay.innerHTML=`${this.relicsCount} <span style="font-size:11px;color:#a89480;">/ ${this.caveWorld.secretsDiscovered} SEC</span>`;
+      }
+      notifySecretDiscovered(){
+        this.caveWorld.secretsDiscovered++;audio.playSecretFound();this.addGoldOre(500);
+        const b=document.createElement('div');b.className='secret-banner';b.textContent='★ SECRET CHAMBER UNLOCKED! ★';
+        this.bannerContainer.appendChild(b);setTimeout(()=>b.remove(),3000);
+      }
+      animate(){
+        requestAnimationFrame(()=>this.animate());
+        const dt=Math.min(this.clock.getDelta(),0.1);
+        if(!this.isGameOver&&this.player.isLocked){
+          this.survivalTime+=dt;this.timerDisplay.textContent=this.formatTime(this.survivalTime);
+          if(this.invulnerabilityTimer>0)this.invulnerabilityTimer-=dt;
+          this.player.update(dt);this.weapon.update(dt);this.skulls.update(dt,this.player.position);
+        }
+        this.debrisManager.update(dt);this.treasures.update(dt,this.player.position);
+        this.playerLamp.position.copy(this.player.position);this.playerLamp.position.y+=0.2;
+        this.depthCoord.textContent=`Y: ${(this.player.position.y-2.0).toFixed(1)}m`;
+        this.sectorCoord.textContent=`X: ${Math.floor(this.player.position.x)} | Z: ${Math.floor(this.player.position.z)}`;
+        this.renderer.render(this.scene,this.camera);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded',()=>{window.game=new CaveApp();});
+  </script>
+</body>
+</html>
